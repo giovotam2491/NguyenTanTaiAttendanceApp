@@ -49,7 +49,7 @@ void main() {
         ),
       );
       await signIn(t);
-      expect(find.text('Quản trị'), findsOneWidget);
+      expect(find.text('Tổng quan'), findsWidgets);
       await t.tap(find.byTooltip('Đăng xuất'));
       await t.pumpAndSettle();
       expect(find.widgetWithText(FilledButton, 'Đăng nhập'), findsOneWidget);
@@ -79,7 +79,8 @@ void main() {
       ),
     );
     await signIn(t);
-    await tapLabel(t, 'Quản lý nhân viên');
+    // Overview itself invalidates the session on a protected 401.
+    await t.pumpAndSettle();
     expect(find.widgetWithText(FilledButton, 'Đăng nhập'), findsOneWidget);
     expect(find.text('Quản lý nhân viên'), findsNothing);
   });

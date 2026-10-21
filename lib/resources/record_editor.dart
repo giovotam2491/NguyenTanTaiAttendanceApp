@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../ui/interior.dart';
+
 import '../api/team_api.dart';
 import '../auth/account_validation.dart';
 
@@ -87,7 +89,9 @@ class RecordEditor extends StatefulWidget {
     required this.resource,
     required this.onSave,
     this.initial,
+    this.shiftChoices,
   });
+  final List<Map<String, dynamic>>? shiftChoices;
   final String resource;
   final Map<String, dynamic>? initial;
   final Future<void> Function(Map<String, Object?> payload) onSave;
@@ -248,110 +252,169 @@ class _RecordEditorState extends State<RecordEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope<bool>(
-    onPopInvokedWithResult: (didPop, result) {
-      if (didPop) _closed = true;
-    },
-    child: Scaffold(
-      appBar: AppBar(
-        title: Text(widget.initial == null ? 'Thêm mới' : 'Sửa thông tin'),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Form(
-                key: _form,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final f in _fields)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 22),
-                        child: f.kind == 'role' || f.kind == 'requestType'
-                            ? DropdownButtonFormField<String>(
-                                initialValue: _values[f.key]!.text,
-                                decoration: InputDecoration(labelText: f.label),
-                                isExpanded: true,
-                                items:
-                                    (f.kind == 'requestType'
-                                            ? {
-                                                'Nghỉ phép',
-                                                'Giải trình chấm công',
-                                                _values[f.key]!.text,
-                                              }
-                                            : {
-                                                'employee',
-                                                'admin',
-                                                _values[f.key]!.text,
-                                              })
-                                        .map(
-                                          (r) => DropdownMenuItem(
-                                            value: r,
-                                            child: Text(
-                                              r == 'admin'
-                                                  ? 'Quản trị'
-                                                  : r == 'employee'
-                                                  ? 'Nhân viên'
-                                                  : r,
-                                            ),
+  Widget build(BuildContext context) => InteriorScope(
+    builder: (context) => PopScope<bool>(
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) _closed = true;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.initial == null ? 'Thêm mới' : 'Sửa thông tin'),
+        ),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Form(
+                  key: _form,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final f in _fields) ...[
+                        if (f.key == 'name' ||
+                            f.key == 'type' ||
+                            f.key == 'department' ||
+                            f.key == 'from')
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 20),
+                            child: Text(
+                              f.key == 'department'
+                                  ? 'Tổ chức & phân quyền'
+                                  : f.key == 'from'
+                                  ? 'Thời gian'
+                                  : widget.resource == 'employees'
+                                  ? 'Thông tin nhân viên'
+                                  : widget.resource == 'shifts'
+                                  ? 'Thiết lập ca làm'
+                                  : widget.resource == 'office'
+                                  ? 'Khu vực chấm công'
+                                  : 'Nội dung yêu cầu',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 22),
+                          child:
+                              f.key == 'shiftId' && widget.shiftChoices != null
+                              ? DropdownButtonFormField<String>(
+                                  initialValue: '',
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Ca làm',
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem(
+                                      value: '',
+                                      child: Text('Chưa phân ca'),
+                                    ),
+                                    for (final shift in widget.shiftChoices!)
+                                      if (shift['id'] is String &&
+                                          shift['id'] != '')
+                                        DropdownMenuItem(
+                                          value: shift['id'] as String,
+                                          child: Text(
+                                            (shift['name'] ??
+                                                    'Ca làm chưa có tên')
+                                                .toString(),
                                           ),
-                                        )
-                                        .toList(),
-                                validator: (v) => _validate(f, v),
-                                onChanged: _busy || _uncertain
-                                    ? null
-                                    : (v) => _values[f.key]!.text =
-                                          v ?? _values[f.key]!.text,
-                              )
-                            : TextFormField(
-                                controller: _values[f.key],
-                                enabled: !_busy && !_uncertain,
-                                obscureText: f.kind == 'password',
-                                keyboardType: f.kind == 'int'
-                                    ? TextInputType.number
-                                    : f.key == 'email'
-                                    ? TextInputType.emailAddress
-                                    : TextInputType.text,
-                                autocorrect: false,
-                                decoration: InputDecoration(labelText: f.label),
-                                validator: (v) => _validate(f, v),
+                                        ),
+                                  ],
+                                  onChanged: _busy || _uncertain
+                                      ? null
+                                      : (v) => _values[f.key]!.text = v ?? '',
+                                )
+                              : f.kind == 'role' || f.kind == 'requestType'
+                              ? DropdownButtonFormField<String>(
+                                  initialValue: _values[f.key]!.text,
+                                  decoration: InputDecoration(
+                                    labelText: f.label,
+                                  ),
+                                  isExpanded: true,
+                                  items:
+                                      (f.kind == 'requestType'
+                                              ? {
+                                                  'Nghỉ phép',
+                                                  'Giải trình chấm công',
+                                                  _values[f.key]!.text,
+                                                }
+                                              : {
+                                                  'employee',
+                                                  'admin',
+                                                  _values[f.key]!.text,
+                                                })
+                                          .map(
+                                            (r) => DropdownMenuItem(
+                                              value: r,
+                                              child: Text(
+                                                r == 'admin'
+                                                    ? 'Quản trị'
+                                                    : r == 'employee'
+                                                    ? 'Nhân viên'
+                                                    : r,
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                  validator: (v) => _validate(f, v),
+                                  onChanged: _busy || _uncertain
+                                      ? null
+                                      : (v) => _values[f.key]!.text =
+                                            v ?? _values[f.key]!.text,
+                                )
+                              : TextFormField(
+                                  controller: _values[f.key],
+                                  enabled: !_busy && !_uncertain,
+                                  obscureText: f.kind == 'password',
+                                  keyboardType: f.kind == 'int'
+                                      ? TextInputType.number
+                                      : f.key == 'email'
+                                      ? TextInputType.emailAddress
+                                      : TextInputType.text,
+                                  autocorrect: false,
+                                  minLines: f.key == 'reason' ? 3 : 1,
+                                  maxLines: f.key == 'reason' ? 5 : 1,
+                                  decoration: InputDecoration(
+                                    labelText: f.label,
+                                  ),
+                                  validator: (v) => _validate(f, v),
+                                ),
+                        ),
+                      ],
+                      if (widget.resource == 'employees' &&
+                          widget.initial != null)
+                        SwitchListTile(
+                          title: const Text('Tài khoản hoạt động'),
+                          value: _active,
+                          onChanged: _busy || _uncertain
+                              ? null
+                              : (v) => setState(() => _active = v),
+                        ),
+                      if (_error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 18),
+                          child: Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              _error!,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
                               ),
-                      ),
-                    if (widget.resource == 'employees' &&
-                        widget.initial != null)
-                      SwitchListTile(
-                        title: const Text('Tài khoản hoạt động'),
-                        value: _active,
-                        onChanged: _busy || _uncertain
-                            ? null
-                            : (v) => setState(() => _active = v),
-                      ),
-                    if (_error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 18),
-                        child: Semantics(
-                          liveRegion: true,
-                          child: Text(
-                            _error!,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
                             ),
                           ),
                         ),
+                      FilledButton(
+                        onPressed: _busy || _uncertain ? null : _save,
+                        child: Text(_busy ? 'Đang lưu…' : 'Lưu'),
                       ),
-                    FilledButton(
-                      onPressed: _busy || _uncertain ? null : _save,
-                      child: Text(_busy ? 'Đang lưu…' : 'Lưu'),
-                    ),
-                    if (_uncertain)
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(false),
-                        child: const Text('Quay lại kiểm tra danh sách'),
-                      ),
-                  ],
+                      if (_uncertain)
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('Quay lại kiểm tra danh sách'),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),

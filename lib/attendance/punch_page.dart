@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+
+import '../ui/interior.dart';
+
 import 'package:geolocator/geolocator.dart';
 
 import '../api/team_api.dart';
@@ -18,7 +21,9 @@ class PunchPage extends StatefulWidget {
     required this.session,
     required this.onUnauthorized,
     this.locate,
+    this.initialCheckOut = false,
   });
+  final bool initialCheckOut;
   final TeamApi api;
   final AuthSession session;
   final VoidCallback onUnauthorized;
@@ -40,6 +45,7 @@ class _PunchPageState extends State<PunchPage> {
   @override
   void initState() {
     super.initState();
+    _checkout = widget.initialCheckOut;
     if (_pending != null) {
       _checkout = widget.session.pendingCheckOut;
       _qr.text = _pending!['qr'] as String;
@@ -157,107 +163,114 @@ class _PunchPageState extends State<PunchPage> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope<void>(
-    onPopInvokedWithResult: (didPop, result) {
-      if (didPop) _closed = true;
-    },
-    child: Scaffold(
-      appBar: AppBar(title: const Text('Chấm công')),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Ghi nhận ca làm.',
-                    style: Theme.of(context).textTheme.headlineLarge,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Khi bạn xác nhận, vị trí hiện tại, độ chính xác và mã QR sẽ được gửi tới hệ thống chấm công.',
-                  ),
-                  const SizedBox(height: 24),
-                  DropdownButtonFormField<bool>(
-                    initialValue: _checkout,
-                    decoration: const InputDecoration(labelText: 'Thao tác'),
-                    items: const [
-                      DropdownMenuItem(value: false, child: Text('Vào ca')),
-                      DropdownMenuItem(value: true, child: Text('Ra ca')),
-                    ],
-                    onChanged: _busy || _pending != null
-                        ? null
-                        : (v) => setState(() => _checkout = v ?? false),
-                  ),
-                  const SizedBox(height: 20),
-                  TextFormField(
-                    controller: _qr,
-                    enabled: !_busy && _pending == null,
-                    autocorrect: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Mã QR',
-                      helperText: 'Quét bằng camera hoặc dán mã được cấp.',
-                      helperMaxLines: 3,
+  Widget build(BuildContext context) => InteriorScope(
+    builder: (context) => PopScope<void>(
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) _closed = true;
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Chấm công')),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Ghi nhận ca làm.',
+                      style: Theme.of(context).textTheme.headlineLarge,
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    onPressed: _busy || _pending != null ? null : _scan,
-                    icon: const Icon(Icons.qr_code_scanner),
-                    label: const Text('Quét QR'),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_error != null)
-                    Semantics(
-                      liveRegion: true,
-                      child: Text(
-                        _error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+                    const SizedBox(height: 12),
+                    const Text(
+                      '01 · Quét mã   /   02 · Xác nhận vị trí',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Khi bạn xác nhận, vị trí hiện tại, độ chính xác và mã QR sẽ được gửi tới hệ thống chấm công.',
+                    ),
+                    const SizedBox(height: 24),
+                    DropdownButtonFormField<bool>(
+                      initialValue: _checkout,
+                      decoration: const InputDecoration(labelText: 'Thao tác'),
+                      items: const [
+                        DropdownMenuItem(value: false, child: Text('Vào ca')),
+                        DropdownMenuItem(value: true, child: Text('Ra ca')),
+                      ],
+                      onChanged: _busy || _pending != null
+                          ? null
+                          : (v) => setState(() => _checkout = v ?? false),
+                    ),
+                    const SizedBox(height: 20),
+                    TextFormField(
+                      controller: _qr,
+                      enabled: !_busy && _pending == null,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Mã QR',
+                        helperText: 'Quét bằng camera hoặc dán mã được cấp.',
+                        helperMaxLines: 3,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: _busy || _pending != null ? null : _scan,
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('Quét QR'),
+                    ),
+                    const SizedBox(height: 16),
+                    if (_error != null)
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          _error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
                         ),
                       ),
-                    ),
-                  if (_message != null)
-                    Semantics(liveRegion: true, child: Text(_message!)),
-                  const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: _busy ? null : _submit,
-                    child: Text(
-                      _busy
-                          ? 'Đang xử lý…'
-                          : _pending != null
-                          ? 'Gửi lại cùng thao tác'
-                          : _checkout
-                          ? 'Chấm công ra ca'
-                          : 'Chấm công vào ca',
-                    ),
-                  ),
-                  if (_pending != null)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 12),
+                    if (_message != null)
+                      Semantics(liveRegion: true, child: Text(_message!)),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: _busy ? null : _submit,
                       child: Text(
-                        'Kết quả có thể đã được ghi. Kiểm tra lịch sử trước khi gửi lại. App giữ nguyên khóa thao tác để máy chủ xử lý trùng.',
+                        _busy
+                            ? 'Đang xử lý…'
+                            : _pending != null
+                            ? 'Gửi lại cùng thao tác'
+                            : _checkout
+                            ? 'Chấm công ra ca'
+                            : 'Chấm công vào ca',
                       ),
                     ),
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => HistoryPage(
-                                api: widget.api,
-                                session: widget.session,
-                                onUnauthorized: widget.onUnauthorized,
+                    if (_pending != null)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: Text(
+                          'Kết quả có thể đã được ghi. Kiểm tra lịch sử trước khi gửi lại. App giữ nguyên khóa thao tác để máy chủ xử lý trùng.',
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => HistoryPage(
+                                  api: widget.api,
+                                  session: widget.session,
+                                  onUnauthorized: widget.onUnauthorized,
+                                ),
                               ),
                             ),
-                          ),
-                    child: const Text('Xem lịch sử'),
-                  ),
-                ],
+                      child: const Text('Xem lịch sử'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

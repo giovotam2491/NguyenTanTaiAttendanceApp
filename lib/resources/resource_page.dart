@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/team_api.dart';
 import '../auth/auth_session.dart';
 import 'record_editor.dart';
+import '../ui/interior.dart';
 
 List<Map<String, dynamic>> parseRecords(Object? value) {
   final items = value;
@@ -47,7 +48,11 @@ class ResourcePage extends StatefulWidget {
     required this.resource,
     required this.title,
     required this.onUnauthorized,
+    this.header,
+    this.reviewOnly = false,
   });
+  final Widget? header;
+  final bool reviewOnly;
   final TeamApi api;
   final AuthSession session;
   final String resource, title;
@@ -61,8 +66,9 @@ class _ResourcePageState extends State<ResourcePage> {
   bool _busy = true, _mutating = false;
   String? _error;
   int _generation = 0;
+  String _query = '', _status = 'all';
   bool get _canWrite =>
-      widget.session.user.isAdmin ||
+      (widget.session.user.isAdmin && !widget.reviewOnly) ||
       (widget.resource == 'requests' && widget.session.user.isEmployee);
   bool _editable(Map<String, dynamic> item) =>
       _canWrite &&
@@ -130,24 +136,50 @@ class _ResourcePageState extends State<ResourcePage> {
     }
     final id = initial?['id'];
     if (initial != null && (id is! String || id.isEmpty)) return;
+    List<Map<String, dynamic>>? shifts;
+    if (widget.resource == 'employees' && initial == null) {
+      setState(() => _mutating = true);
+      try {
+        shifts = parseRecords(
+          await widget.api.list('shifts', widget.session.accessToken),
+        );
+      } on ApiFailure catch (e) {
+        if (!mounted) return;
+        if (e.status == 401) {
+          widget.onUnauthorized();
+          return;
+        }
+        setState(() => _error = e.message);
+        return;
+      } catch (_) {
+        if (mounted) setState(() => _error = 'Chưa tải được ca làm.');
+        return;
+      } finally {
+        if (mounted) setState(() => _mutating = false);
+      }
+      if (!mounted || widget.session.isExpired) return;
+    }
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => RecordEditor(
-          resource: widget.resource,
-          initial: initial,
-          onSave: (payload) => _write(
-            () => initial == null
-                ? widget.api.create(
-                    widget.resource,
-                    payload,
-                    widget.session.accessToken,
-                  )
-                : widget.api.update(
-                    widget.resource,
-                    id as String,
-                    payload,
-                    widget.session.accessToken,
-                  ),
+        builder: (_) => InteriorScope(
+          builder: (_) => RecordEditor(
+            resource: widget.resource,
+            initial: initial,
+            shiftChoices: shifts,
+            onSave: (payload) => _write(
+              () => initial == null
+                  ? widget.api.create(
+                      widget.resource,
+                      payload,
+                      widget.session.accessToken,
+                    )
+                  : widget.api.update(
+                      widget.resource,
+                      id as String,
+                      payload,
+                      widget.session.accessToken,
+                    ),
+            ),
           ),
         ),
       ),
@@ -325,132 +357,252 @@ class _ResourcePageState extends State<ResourcePage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(widget.title),
-      actions: [
-        IconButton(
-          tooltip: 'Tải lại',
-          onPressed: _busy || _mutating ? null : _load,
-          icon: const Icon(Icons.refresh),
-        ),
-        if (_canWrite)
-          IconButton(
-            tooltip: 'Thêm mới',
-            onPressed: _mutating ? null : () => _edit(),
-            icon: const Icon(Icons.add),
-          ),
-      ],
-    ),
-    body: _busy
-        ? const Center(child: CircularProgressIndicator())
-        : _error != null
-        ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!),
-                  const SizedBox(height: 16),
-                  FilledButton(onPressed: _load, child: const Text('Thử lại')),
-                ],
-              ),
+  Widget build(BuildContext context) => InteriorScope(
+    builder: (context) {
+      final filtered = _items.where((item) {
+        if (widget.reviewOnly && !_reviewable(item)) return false;
+        if (_status != 'all' && item['status'] != _status) return false;
+        return _query.isEmpty ||
+            item.values.any((v) => v.toString().toLowerCase().contains(_query));
+      }).toList();
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.title),
+          actions: [
+            IconButton(
+              tooltip: 'Tải lại',
+              onPressed: _busy || _mutating ? null : _load,
+              icon: const Icon(Icons.refresh),
             ),
-          )
-        : _items.isEmpty
-        ? const Center(child: Text('Chưa có dữ liệu.'))
-        : ListView.separated(
-            itemCount: _items.length,
-            padding: const EdgeInsets.all(16),
-            separatorBuilder: (_, index) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final item = _items[index];
-              final editable = _editable(item);
-              final reviewable = _reviewable(item);
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (item['name'] ??
-                                item['reason'] ??
-                                item['username'] ??
-                                item['id'] ??
-                                'Thông tin')
-                            .toString(),
-                        style: Theme.of(context).textTheme.titleMedium,
+            if (_canWrite)
+              IconButton(
+                tooltip: 'Thêm mới',
+                onPressed: _mutating ? null : () => _edit(),
+                icon: const Icon(Icons.add),
+              ),
+          ],
+        ),
+        body: Column(
+          children: [
+            if (widget.header != null) widget.header!,
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    InteriorHeading(
+                      widget.resource == 'employees'
+                          ? 'Đội ngũ của bạn'
+                          : widget.resource == 'shifts'
+                          ? 'Nhịp làm việc'
+                          : widget.reviewOnly
+                          ? 'Chờ bạn quyết định'
+                          : 'Yêu cầu của bạn',
+                      subtitle: widget.resource == 'requests'
+                          ? 'Theo dõi nội dung, trạng thái và phản hồi.'
+                          : 'Quản lý thông tin trong cùng một nơi.',
+                    ),
+                    TextField(
+                      onChanged: (v) =>
+                          setState(() => _query = v.trim().toLowerCase()),
+                      decoration: const InputDecoration(
+                        labelText: 'Tìm kiếm',
+                        prefixIcon: Icon(Icons.search),
                       ),
-                      for (final key in [
-                        'employeeName',
-                        'reviewerNote',
-                        'username',
-                        'email',
-                        'department',
-                        'role',
-                        'type',
-                        'from',
-                        'to',
-                        'status',
-                        'startMinute',
-                        'endMinute',
-                        'grace',
-                      ])
-                        if (item[key] != null)
-                          Text(
-                            '${_labels[key] ?? key}: ${_display(key, item[key])}',
-                          ),
-                      if (editable || reviewable)
-                        Wrap(
+                    ),
+                    const SizedBox(height: 16),
+                    if (widget.resource == 'requests' && !widget.reviewOnly)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
                           children: [
-                            if (editable)
-                              IconButton(
-                                tooltip: 'Sửa',
-                                onPressed: _mutating ? null : () => _edit(item),
-                                icon: const Icon(Icons.edit_outlined),
+                            for (final v in [
+                              'all',
+                              'pending',
+                              'approved',
+                              'rejected',
+                            ])
+                              ChoiceChip(
+                                label: Text(
+                                  v == 'all' ? 'Tất cả' : requestStatus(v),
+                                ),
+                                selected: _status == v,
+                                onSelected: (_) => setState(() => _status = v),
                               ),
-                            if (editable)
-                              IconButton(
-                                tooltip: 'Xóa',
-                                onPressed: _mutating
-                                    ? null
-                                    : () => _delete(item),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                            if (widget.resource == 'employees' &&
-                                widget.session.user.isAdmin)
-                              IconButton(
-                                tooltip: 'Phân ca',
-                                onPressed: _mutating
-                                    ? null
-                                    : () => _assign(item),
-                                icon: const Icon(Icons.event_available),
-                              ),
-                            if (reviewable) ...[
-                              IconButton(
-                                tooltip: 'Duyệt',
-                                onPressed: _mutating
-                                    ? null
-                                    : () => _review(item, true),
-                                icon: const Icon(Icons.check),
-                              ),
-                              IconButton(
-                                tooltip: 'Từ chối',
-                                onPressed: _mutating
-                                    ? null
-                                    : () => _review(item, false),
-                                icon: const Icon(Icons.close),
-                              ),
-                            ],
                           ],
                         ),
-                    ],
-                  ),
+                      ),
+                    if (_busy) const LinearProgressIndicator(),
+                    if (_error != null) InteriorError(_error!, retry: _load),
+                    if (!_busy && _error == null && filtered.isEmpty)
+                      InteriorPanel(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.inbox_outlined, size: 32),
+                            const SizedBox(height: 16),
+                            Text(
+                              _query.isNotEmpty
+                                  ? 'Không tìm thấy kết quả.'
+                                  : widget.reviewOnly
+                                  ? 'Không có yêu cầu cần duyệt.'
+                                  : 'Chưa có dữ liệu.',
+                            ),
+                            if (_canWrite)
+                              TextButton(
+                                onPressed: () => _edit(),
+                                child: const Text('Tạo bản ghi đầu tiên'),
+                              ),
+                          ],
+                        ),
+                      ),
+                    if (!_busy)
+                      for (final item in filtered)
+                        InteriorPanel(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (widget.resource == 'requests') ...[
+                                StatusLabel(requestStatus(item['status'])),
+                                const SizedBox(height: 16),
+                              ],
+                              Text(
+                                (item['name'] ??
+                                        item['reason'] ??
+                                        item['username'] ??
+                                        item['id'] ??
+                                        'Thông tin')
+                                    .toString(),
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 12),
+                              if (widget.resource == 'employees') ...[
+                                Text(
+                                  '${item['department'] ?? 'Chưa cập nhật phòng ban'} · ${item['username'] ?? 'Chưa có tên đăng nhập'}',
+                                  style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                ExpansionTile(
+                                  tilePadding: EdgeInsets.zero,
+                                  childrenPadding: EdgeInsets.zero,
+                                  shape: const Border(),
+                                  collapsedShape: const Border(),
+                                  title: const Text('Thông tin chi tiết'),
+                                  children: [
+                                    for (final key in ['email', 'role'])
+                                      if (item[key] != null)
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            '${_labels[key]}: ${item[key]}',
+                                          ),
+                                        ),
+                                    if (item.containsKey('active'))
+                                      Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          item['active'] == true
+                                              ? 'Đang hoạt động'
+                                              : 'Ngừng hoạt động',
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ] else if (widget.resource == 'shifts') ...[
+                                Text(
+                                  '${minuteTime(item['startMinute'])} — ${minuteTime(item['endMinute'])}',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineMedium,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Cho phép trễ: ${item['grace'] ?? 'Chưa rõ'} phút',
+                                ),
+                              ] else ...[
+                                for (final key in [
+                                  'employeeName',
+                                  'type',
+                                  'from',
+                                  'to',
+                                  'reviewerNote',
+                                ])
+                                  if (item[key] != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        '${_labels[key]}: ${_display(key, item[key])}',
+                                      ),
+                                    ),
+                              ],
+                              if (_editable(item) || _reviewable(item)) ...[
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 4,
+                                  runSpacing: 8,
+                                  children: [
+                                    if (_editable(item))
+                                      IconButton(
+                                        tooltip: 'Sửa',
+                                        onPressed: _mutating
+                                            ? null
+                                            : () => _edit(item),
+                                        icon: const Icon(Icons.edit_outlined),
+                                      ),
+                                    if (_editable(item))
+                                      IconButton(
+                                        tooltip: 'Xóa',
+                                        onPressed: _mutating
+                                            ? null
+                                            : () => _delete(item),
+                                        icon: const Icon(Icons.delete_outline),
+                                      ),
+                                    if (widget.resource == 'employees' &&
+                                        widget.session.user.isAdmin)
+                                      IconButton(
+                                        tooltip: 'Phân ca',
+                                        onPressed: _mutating
+                                            ? null
+                                            : () => _assign(item),
+                                        icon: const Icon(Icons.event_available),
+                                      ),
+                                    if (_reviewable(item)) ...[
+                                      IconButton(
+                                        tooltip: 'Duyệt',
+                                        onPressed: _mutating
+                                            ? null
+                                            : () => _review(item, true),
+                                        icon: const Icon(Icons.check),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Từ chối',
+                                        onPressed: _mutating
+                                            ? null
+                                            : () => _review(item, false),
+                                        icon: const Icon(Icons.close),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                    const SizedBox(height: 24),
+                  ],
                 ),
-              );
-            },
-          ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
   );
 }

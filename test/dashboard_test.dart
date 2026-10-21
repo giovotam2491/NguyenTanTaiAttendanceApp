@@ -28,15 +28,15 @@ void main() {
         ),
       );
       expect(
-        find.text('Quản lý nhân viên'),
+        find.text('Nhân sự'),
         role == 'admin' ? findsOneWidget : findsNothing,
       );
       expect(
-        find.text('Quản lý ca làm'),
+        find.text('Thiết lập'),
         role == 'admin' ? findsOneWidget : findsNothing,
       );
       expect(
-        find.text('Yêu cầu của tôi'),
+        find.text('Đơn'),
         role == 'employee' ? findsOneWidget : findsNothing,
       );
       if (role == 'guest') {
@@ -54,7 +54,14 @@ void main() {
           session: session,
           api: TeamApi(
             client: MockClient((request) async {
-              expect(request.url.path, '/api/employees');
+              if (request.url.path != '/api/employees') {
+                return http.Response(
+                  request.url.path == '/api/office'
+                      ? '{"configured":false}'
+                      : '[]',
+                  200,
+                );
+              }
               expect(request.headers['Authorization'], 'Bearer test-access');
               return http.Response(
                 '[{"id":"person-id","name":"Person A"}]',
@@ -67,7 +74,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Quản lý nhân viên'));
+    await tester.tap(find.text('Nhân sự'));
     await tester.pumpAndSettle();
     expect(find.text('Person A'), findsOneWidget);
     expect(find.byTooltip('Thêm mới'), findsOneWidget);

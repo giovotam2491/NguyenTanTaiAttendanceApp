@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../ui/interior.dart';
+
 import '../api/team_api.dart';
 import '../auth/auth_session.dart';
-import '../resources/resource_page.dart' show parseRecords;
+import 'attendance_data.dart';
 
 class HistoryPage extends StatefulWidget {
   const HistoryPage({
@@ -36,11 +38,7 @@ class _HistoryPageState extends State<HistoryPage> {
   String _display(String key, Object? value) {
     if (key == 'lateMinutes') return '$value phút';
     if (['checkIn', 'checkOut', 'scheduledEnd'].contains(key)) {
-      final parsed = value is String ? DateTime.tryParse(value) : null;
-      if (parsed == null) return 'Thời gian không hợp lệ';
-      final vn = parsed.toUtc().add(const Duration(hours: 7));
-      String two(int n) => n.toString().padLeft(2, '0');
-      return '${two(vn.day)}/${two(vn.month)}/${vn.year} ${two(vn.hour)}:${two(vn.minute)}';
+      return attendanceTime(value);
     }
     return value.toString();
   }
@@ -59,21 +57,12 @@ class _HistoryPageState extends State<HistoryPage> {
         page: _page,
       );
       if (!mounted || generation != _generation) return;
-      if (response is! Map<String, dynamic> ||
-          response['total'] is! int ||
-          response['page'] is! int ||
-          response['pageSize'] is! int ||
-          (response['total'] as int) < 0 ||
-          (response['page'] as int) < 1 ||
-          (response['pageSize'] as int) < 1) {
-        throw const ApiFailure('Chưa đọc được phân trang lịch sử.');
-      }
-      final data = parseRecords(response['items']);
+      final slice = AttendanceSlice(response);
       setState(() {
-        _items = data;
-        _page = response['page'] as int;
-        _total = response['total'] as int;
-        _pageSize = response['pageSize'] as int;
+        _items = slice.items;
+        _page = slice.page;
+        _total = slice.total;
+        _pageSize = slice.pageSize;
       });
     } on ApiFailure catch (e) {
       if (!mounted || generation != _generation) return;
@@ -113,103 +102,123 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Lịch sử chấm công'),
-      actions: [
-        IconButton(
-          tooltip: 'Tải lại',
-          onPressed: _busy ? null : _load,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              OutlinedButton(
-                onPressed: _busy ? null : () => _pick(true),
-                child: Text('Từ ${_date(_from)}'),
-              ),
-              OutlinedButton(
-                onPressed: _busy ? null : () => _pick(false),
-                child: Text('Đến ${_date(_to)}'),
-              ),
-            ],
+  Widget build(BuildContext context) => InteriorScope(
+    builder: (context) => Scaffold(
+      appBar: AppBar(
+        title: const Text('Lịch sử chấm công'),
+        actions: [
+          IconButton(
+            tooltip: 'Tải lại',
+            onPressed: _busy ? null : _load,
+            icon: const Icon(Icons.refresh),
           ),
-          const SizedBox(height: 20),
-          if (_busy)
-            const Center(child: CircularProgressIndicator())
-          else if (_error != null) ...[
-            Text(_error!),
-            FilledButton(onPressed: _load, child: const Text('Thử lại')),
-          ] else if (_items.isEmpty)
-            const Text('Chưa có bản ghi trong khoảng ngày này.')
-          else
-            for (final item in _items)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (item['employeeName'] ??
-                                item['name'] ??
-                                'Bản ghi chấm công')
-                            .toString(),
-                        style: Theme.of(context).textTheme.titleMedium,
+        ],
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            const InteriorHeading(
+              'Dấu chân ca làm',
+              subtitle: 'Thời gian hiển thị theo múi giờ Việt Nam.',
+            ),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: _busy ? null : () => _pick(true),
+                  child: Text('Từ ${_date(_from)}'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy ? null : () => _pick(false),
+                  child: Text('Đến ${_date(_to)}'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            if (_busy)
+              const Center(child: CircularProgressIndicator())
+            else if (_error != null) ...[
+              Text(_error!),
+              FilledButton(onPressed: _load, child: const Text('Thử lại')),
+            ] else if (_items.isEmpty)
+              const Text('Chưa có bản ghi trong khoảng ngày này.')
+            else
+              for (final item in _items)
+                Card(
+                  child: ExpansionTile(
+                    shape: const Border(),
+                    collapsedShape: const Border(),
+                    tilePadding: const EdgeInsets.all(20),
+                    childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    title: Text(
+                      (item['shiftName'] ?? 'Ca làm').toString(),
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '${item['employeeName'] ?? 'Nhân viên'} · ${item['workDate'] ?? 'Chưa rõ ngày'}\n${attendanceTime(item['checkIn'], date: false)} → ${attendanceTime(item['checkOut'], date: false)}',
                       ),
-                      for (final entry in {
-                        'workDate': 'Ngày làm',
-                        'shiftName': 'Ca làm',
-                        'checkIn': 'Vào ca',
-                        'checkOut': 'Ra ca',
-                        'scheduledEnd': 'Kết thúc dự kiến',
-                        'lateMinutes': 'Trễ',
-                        'id': 'Mã bản ghi',
-                      }.entries)
-                        if (item[entry.key] != null)
-                          Text(
-                            '${entry.value}: ${_display(entry.key, item[entry.key])}',
-                          ),
+                    ),
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (final entry in {
+                              'workDate': 'Ngày làm',
+                              'shiftName': 'Ca làm',
+                              'checkIn': 'Vào ca',
+                              'checkOut': 'Ra ca',
+                              'scheduledEnd': 'Kết thúc dự kiến',
+                              'lateMinutes': 'Trễ',
+                              'id': 'Mã bản ghi',
+                            }.entries)
+                              if (item[entry.key] != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Text(
+                                    '${entry.value}: ${_display(entry.key, item[entry.key])}',
+                                  ),
+                                ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              OutlinedButton(
-                onPressed: _busy || _page <= 1
-                    ? null
-                    : () {
-                        setState(() => _page--);
-                        _load();
-                      },
-                child: const Text('Trang trước'),
-              ),
-              Text('Trang $_page'),
-              OutlinedButton(
-                onPressed:
-                    _busy || _error != null || _page * _pageSize >= _total
-                    ? null
-                    : () {
-                        setState(() => _page++);
-                        _load();
-                      },
-                child: const Text('Trang sau'),
-              ),
-            ],
-          ),
-        ],
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                OutlinedButton(
+                  onPressed: _busy || _page <= 1
+                      ? null
+                      : () {
+                          setState(() => _page--);
+                          _load();
+                        },
+                  child: const Text('Trang trước'),
+                ),
+                Text('Trang $_page'),
+                OutlinedButton(
+                  onPressed:
+                      _busy || _error != null || _page * _pageSize >= _total
+                      ? null
+                      : () {
+                          setState(() => _page++);
+                          _load();
+                        },
+                  child: const Text('Trang sau'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     ),
   );

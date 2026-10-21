@@ -50,9 +50,13 @@ void main() {
       ),
     );
     await t.pumpAndSettle();
+    await t.tap(find.byType(ExpansionTile).first);
+    await t.pumpAndSettle();
     expect(find.text('Vào ca: 22/10/2026 06:30'), findsOneWidget);
     expect(find.text('Kết thúc dự kiến: 22/10/2026 13:00'), findsOneWidget);
     expect(find.text('Trễ: 3 phút'), findsOneWidget);
+    await t.drag(find.byType(ListView), const Offset(0, -700));
+    await t.pumpAndSettle();
     await t.ensureVisible(find.text('Trang sau'));
     expect(
       t
@@ -65,6 +69,8 @@ void main() {
     await t.tap(find.text('Trang sau'));
     await t.pumpAndSettle();
     expect(pages, ['1', '2']);
+    await t.drag(find.byType(ListView), const Offset(0, -700));
+    await t.pumpAndSettle();
     await t.ensureVisible(find.text('Trang sau'));
     expect(
       t
