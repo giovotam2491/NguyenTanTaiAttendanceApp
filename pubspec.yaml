@@ -1,0 +1,21 @@
+name: nguyen_tan_tai_attendance_app
+description: Ung dung cham cong NguyenTanTai dung API nhom.
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: ^3.13.5
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  geolocator: ^14.1.2
+  http: ^1.6.0
+  mobile_scanner: ^7.4.2
+  qr_flutter: ^4.1.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true
